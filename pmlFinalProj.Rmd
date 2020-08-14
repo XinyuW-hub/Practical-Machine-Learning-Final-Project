@@ -1,0 +1,46 @@
+---
+title: "Practical Machine Learning Final Project"
+author: "Xinyu W"
+date: "8/14/2020"
+output:  
+  html_document:
+    keep_md: yes
+---
+
+## Overview
+
+
+
+## Preparation Work
+
+### Set up the global environment
+```{r globalEnv, results='hide'}
+library(knitr)
+opts_chunk$set(fig.path = "Figs/", warning=FALSE, message = FALSE, echo=TRUE)
+library(caret)
+```
+
+### Load the data
+Since I have already downloaded the data sets from online (the urls can be found through README.md file), here I just read them by coding:
+```{r load}
+training <- read.csv("./data/training.csv", na.strings = c("NA", "#DIV/0!", ""))
+testing <- read.csv("./data/testing.csv", na.strings = c("NA", "#DIV/0!", ""))
+dim(training); dim(testing)
+```
+
+### Clean the data set
+Taking a look into the data sets (as shown below), I find that there are quite few variables got a large number of NAs, which might later give a false sense for our prediction.
+```{r}
+head(colSums(is.na(training)), 50)
+```
+
+Therefore, we have to get rid of them before prediction. I set the threshold as 95%, meaning that we will remove variables which contains more than 5% NAs. We will also remove some columns containing some unrelated data like user names and time.
+```{r remove}
+remainPart <- colSums(is.na(training))/nrow(training) < 0.95
+training_after <- training[, remainPart]
+training_after <- training_after[, -c(1:7)]
+#do the same for testing data set
+testing_after <- testing[, names(training_after)[1:52]]
+dim(training_after); dim(testing_after)
+```
+
