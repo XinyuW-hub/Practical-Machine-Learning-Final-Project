@@ -1,7 +1,6 @@
 ---
 title: "Practical Machine Learning Final Project"
 author: "Xinyu W"
-date: "8/14/2020"
 output:  
   html_document:
     keep_md: yes
@@ -9,29 +8,30 @@ output:
 
 ## Overview
 
-
+This project aims to make prediction (and test how good our prediction is) on our experiment's subjects' behaviors based on the existing observations from the training set.The data is collected from weight lifting exercises from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The project cleans the data set by removing unrelated variables and creating cross validation data partition. After researched on decision tree, random forest and boosting models, the project found the random forest model with the highest accuracy (99%) and modeled the prediction on the test set. Note: the random forest model alone performs better than the combined model of random forest and bosting models.
 
 ## Preparation Work
 
 ### Set up the global environment
-```{r globalEnv, results='hide'}
+```{r globalEnv, results='hide', message=FALSE}
 library(knitr)
 opts_chunk$set(fig.path = "Figs/", warning=FALSE, message = FALSE, echo=TRUE)
 library(caret)
+library(rattle)
 ```
 
 ### Load the data
 Since I have already downloaded the data sets from online (the urls can be found through README.md file), here I just read them by coding:
 ```{r load}
-training <- read.csv("./data/training.csv", na.strings = c("NA", "#DIV/0!", ""))
-testing <- read.csv("./data/testing.csv", na.strings = c("NA", "#DIV/0!", ""))
+training <- read.csv("./data/pml-training.csv", na.strings = c("NA", "#DIV/0!", ""))
+testing <- read.csv("./data/pml-testing.csv", na.strings = c("NA", "#DIV/0!", ""))
 dim(training); dim(testing)
 ```
 
 ### Clean the data set
 Taking a look into the data sets (as shown below), I find that there are quite few variables got a large number of NAs, which might later give a false sense for our prediction.
 ```{r}
-head(colSums(is.na(training)), 50)
+head(colSums(is.na(training)), 30)
 ```
 
 Therefore, we have to get rid of them before prediction. I set the threshold as 95%, meaning that we will remove variables which contains more than 5% NAs. We will also remove some columns containing some unrelated data like user names and time.
@@ -44,3 +44,109 @@ testing_after <- testing[, names(training_after)[1:52]]
 dim(training_after); dim(testing_after)
 ```
 
+## Data Analysis
+
+From the [original report](https://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har), the "classe" variable is described as below:  
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions:
+
+* exactly according to the specification (Class A)
+* throwing the elbows to the front (Class B)
+* lifting the dumbbell only halfway (Class C)
+* lowering the dumbbell only halfway (Class D)
+* throwing the hips to the front (Class E)
+
+```{r classeData}
+table(training_after$classe)
+prop.table(table(training_after$classe))
+```
+
+
+### Set up cross validation
+Since we already got the training and testing data set separately, we can partition the training set in order to create a separate set for **cross validation**.
+
+```{r crossvalid}
+set.seed(2333)
+inTrain <- createDataPartition(y = training_after$classe, p = 0.7, list = FALSE)
+trainingData <- training_after[inTrain, ]
+trainingData$classe <- as.factor(trainingData$classe)
+crossValidation <- training_after[-inTrain, ]
+crossValidation$classe <- as.factor(crossValidation$classe)
+```
+
+### Select Model and Prediction
+
+#### Decision Tree Model
+
+**1. set up the model and plot the tree**
+```{r decisionTree, cache=TRUE}
+set.seed(23)
+dtMod <- train(classe~., data = trainingData, method = "rpart")
+fancyRpartPlot(dtMod$finalModel)
+```
+
+**2. predict**
+
+From our prediction, we find the **out of sample err** as 0.51, while the **accuracy** is 0.49 (or 49%), which means the decision tree model FAIL to meet our standard as a predictive model.
+
+```{r drPred}
+dtPred <- predict(dtMod, newdata = crossValidation)
+confusionMatrix(dtPred, crossValidation$classe)
+```
+
+#### Random Forest Model
+
+**1. set up the model**
+```{r rfMod}
+set.seed(233)
+rfControl <- trainControl(method = "cv", number = 4, p = 0.6)
+rfMod <- train(classe~., method = "rf", data = trainingData, trControl = rfControl, 
+               metric = "Accuracy", preProcess = c("center", "scale")); rfMod
+
+```
+
+**2. predict**
+
+From our prediction, we see an **out of sample err** less than 0.02, while the **accuracy** reaches nearly 99%. The random forest model stands for a successfully high accuracy rate.
+
+```{r rfPred}
+rfPred <- predict(rfMod, crossValidation)
+confusionMatrix(rfPred, crossValidation$classe)
+```
+
+#### Boosting Model
+
+**1. set up the model and plot the tree**
+```{r gbmMod}
+gbmMod <- train(classe~., data = trainingData, method = "gbm", verbose = FALSE)
+```
+
+**2. predict**
+
+We can see an **out of sample err** less than 0.05, while the **accuracy** is approximately 95.68%. The gradient boosting model, although not as good as random forest, is pretty satisfying at prediction.
+
+```{r gbmPred}
+gbmPred <- predict(gbmMod, newdata = crossValidation)
+confusionMatrix(gbmPred, crossValidation$classe)
+```
+
+#### Combined Model
+
+Now we try to combine the random forest model with our boosting model and see whether the accuracy could be raised.
+
+```{r comMod}
+tempdf <- data.frame(rfPred, gbmPred, classe = crossValidation$classe)
+comMod <- train(classe~., data = tempdf, method = "rf")
+comPred <- predict(comMod, newdata = crossValidation)
+confusionMatrix(comPred, crossValidation$classe)$overall
+```
+
+### Test Set and Result
+
+Now that we find our best-performed predictive model, we now run it through our test data. Here, we see the same relatively high frequency of class A and class B.
+```{r test}
+testPred <- predict(rfMod, newdata = testing_after)
+# We can have a look of the frequency
+table(testPred)
+prop.table(table(testPred))
+```
